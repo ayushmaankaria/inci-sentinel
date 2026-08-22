@@ -20,4 +20,40 @@ function validate(scrapeOutput) {
   return { ok: true, ingredients };
 }
 
-module.exports = { validate };
+// The diagnosis written onto the `incident` becomes the prompt Bright Data's
+// self-healing AI receives. A generic "wrong-shape ingredients array" was
+// empirically NOT enough — the AI completed a heal and changed nothing but the
+// collector name, because the message says what is wrong without saying what to
+// build or what to build it from. This reports the observed shape and names a
+// likely source field, which is the difference between a repair and a no-op.
+function describeFailure(scrapeOutput) {
+  const contract =
+    'The consumer requires a field named `ingredients` that is a non-empty ARRAY of ingredient name strings, one element per ingredient.';
+
+  if (!scrapeOutput || typeof scrapeOutput !== 'object') {
+    return `${contract} The scraper returned no usable object at all — re-extract the product page.`;
+  }
+
+  const keys = Object.keys(scrapeOutput).filter((k) => k !== 'input');
+  const raw = scrapeOutput.ingredients;
+  let detail;
+
+  if (raw === undefined) {
+    const candidate = keys.find((k) => /ingredient/i.test(k));
+    detail = candidate
+      ? `There is no \`ingredients\` field. The ingredient data appears to be in \`${candidate}\` (a ${
+          Array.isArray(scrapeOutput[candidate]) ? 'array' : typeof scrapeOutput[candidate]
+        }). Derive \`ingredients\` from it by splitting on commas into one trimmed element per ingredient, dropping any [more] or [less] markers.`
+      : 'There is no `ingredients` field and no field that obviously holds ingredient data. Extract the INCI ingredient list from the page into a new `ingredients` array.';
+  } else if (!Array.isArray(raw)) {
+    detail = `\`ingredients\` is a ${typeof raw}, not an array. Split it into one trimmed element per ingredient.`;
+  } else if (raw.length === 0) {
+    detail = '`ingredients` is an empty array — the selector matches nothing. Re-locate the ingredient list on the page.';
+  } else {
+    detail = '`ingredients` contains empty or non-string entries. Every element must be a non-empty ingredient name string.';
+  }
+
+  return `${contract} ${detail} Fields currently returned: ${keys.join(', ') || '(none)'}. Keep all existing fields.`;
+}
+
+module.exports = { validate, describeFailure };

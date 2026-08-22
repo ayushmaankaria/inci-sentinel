@@ -1,6 +1,6 @@
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
 const { scrape } = require('./scrape');
-const { validate } = require('./validate');
+const { validate, describeFailure } = require('./validate');
 const db = require('./db');
 const port = require('./port');
 
@@ -73,7 +73,7 @@ async function run(productId = 'default') {
           title: `Scraper broken for product ${productId}`,
           properties: {
             status: 'open',
-            diagnosis: 'scraper validation failed: scrape output missing/empty/wrong-shape ingredients array',
+            diagnosis: describeFailure(scrapeResult),
             created_at: new Date().toISOString(),
           },
           relations: { pipeline_run: runId },

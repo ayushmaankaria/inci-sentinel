@@ -52,8 +52,15 @@ async function heal(collectorId, diagnosis, url) {
   }
 }
 
+// `--auto-save` is REQUIRED, and its absence is silent. Plain `scraper approve`
+// returns {"status":"done","completed_steps":[...,"user_approval"]} and looks
+// entirely successful, but only clears the approval gate — it never writes the
+// healed template to the live scraper, so the very next run still returns the
+// broken shape. Confirmed empirically: approved without it, got status done,
+// and `ingredients` was still absent from the collector output.
 async function approve(collectorId, url) {
-  const args = ['-p', '@brightdata/cli', 'bdata', 'scraper', 'approve', collectorId, '--url', url, '--json'];
+  const args = ['-p', '@brightdata/cli', 'bdata', 'scraper', 'approve', collectorId,
+    '--url', url, '--auto-save', '--timeout', String(HEAL_TIMEOUT_SECONDS), '--json'];
   try {
     const stdout = await runCli(args);
     let parsed;

@@ -476,6 +476,51 @@ polling line per second, which put ~52KB of noise into a single `heal_proposal`
 entity and buried the actual outcome. `src/index.js` strips
 `polling (attempt N/M)` lines and caps the result at 1500 chars.
 
+## `scraper approve` needs `--auto-save`, and failing to pass it is SILENT
+
+Plain `bdata scraper approve <id>` clears the approval gate but **does not write
+the healed template to the live scraper**. It returns what looks like complete
+success:
+
+```json
+{"status":"done","completed_steps":[...,"user_approval"]}
+```
+
+and the very next run still returns the broken shape. Confirmed empirically: a
+heal reached `awaiting_approval` with a correct `ingredients` array in its
+`preview_result`, was approved, reported `done` — and the collector's
+`output_schema` still had no `ingredients` field.
+
+`src/heal.js` → `approve()` therefore passes `--auto-save`. Do not remove it.
+Once the gate is consumed, a later `--auto-save` cannot rescue it:
+`approve` then returns `400 Invalid ide automation`, and the whole heal must be
+re-run.
+
+## The diagnosis text IS the heal prompt — make it actionable
+
+The `incident.diagnosis` written by `src/pipeline.js` becomes the prompt Bright
+Data's AI receives. The original string was:
+
+> `scraper validation failed: scrape output missing/empty/wrong-shape ingredients array`
+
+That is a *symptom*, not an instruction. Given it, the AI ran for over 22
+minutes, completed, and changed nothing but the collector's name. Given an
+actionable prompt naming the target field, the source field and the transform,
+the same heal succeeded in **39 poll attempts (~40 seconds)**.
+
+`validate.js` now exports `describeFailure(scrapeOutput)`, which inspects the
+observed output and generates that instruction — e.g. for the demo collector:
+
+> The consumer requires a field named `ingredients` that is a non-empty ARRAY of
+> ingredient name strings, one element per ingredient. There is no `ingredients`
+> field. The ingredient data appears to be in `ingredients_list` (a string).
+> Derive `ingredients` from it by splitting on commas into one trimmed element
+> per ingredient, dropping any [more] or [less] markers. Fields currently
+> returned: product_name, brand, ... Keep all existing fields.
+
+**Rule:** a self-healing system is only as good as the diagnosis it emits. If a
+heal "succeeds" but changes nothing, suspect the prompt before the AI.
+
 ## Smoke-test commands
 
 ```bash
