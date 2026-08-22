@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "brightdata": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@brightdata/mcp"
+      ],
+      "env": {
+        "API_TOKEN": "${BRIGHTDATA_API_TOKEN}"
+      }
+    },
+    "signoz": {
+      "type": "http",
+      "url": "https://mcp.us2.signoz.cloud/mcp",
+      "headers": {
+        "SIGNOZ-API-KEY": "${SIGNOZ_API_KEY}",
+        "X-SigNoz-URL": "${SIGNOZ_INSTANCE_URL}"
+      }
+    },
+    "port": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.port.io/v1",
+        "--header",
+        "x-read-only-mode: 0"
+      ],
+      "env": {}
+    }
+  }
+}

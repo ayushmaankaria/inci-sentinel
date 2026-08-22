@@ -1,0 +1,25 @@
+{
+  "name": "inci-sentinel",
+  "version": "1.0.0",
+  "description": "Self-Healing Skincare Reformulation Watchdog",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "seed": "node src/seed.js",
+    "tunnel": "sh -c 'set -a; [ -f .env ] && . ./.env; set +a; ngrok http --domain=${NGROK_DOMAIN:?NGROK_DOMAIN is not set \u2014 add it to .env (reserve one at dashboard.ngrok.com -> Domains)} 3000'"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-metrics": "^2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}

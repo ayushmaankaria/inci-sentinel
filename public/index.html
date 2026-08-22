@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INCI Sentinel</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2e38;
+    --text: #e6e8eb;
+    --muted: #9aa1ac;
+    --green: #3ecf8e;
+    --red: #ef5a5a;
+    --accent: #5b8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+
+  .banner {
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+  .banner.ok { background: rgba(62,207,142,0.12); color: var(--green); border-color: var(--green); }
+  .banner.broken { background: rgba(239,90,90,0.12); color: var(--red); border-color: var(--red); }
+  .banner.idle { color: var(--muted); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .panel h2 { font-size: 1rem; margin: 0 0 10px; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  button {
+    flex: 1 1 auto;
+    min-width: 100px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--text); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:active { transform: translateY(1px); }
+
+  .formula-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chip {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+  }
+
+  .history-item {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 0;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-time { color: var(--muted); font-size: 0.75rem; margin-bottom: 6px; }
+  .diff-line { font-size: 0.85rem; margin: 2px 0; font-family: ui-monospace, monospace; }
+  .add { color: var(--green); }
+  .rem { color: var(--red); }
+  .empty { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>INCI Sentinel</h1>
+  <div class="sub">Self-healing skincare reformulation watchdog</div>
+
+  <div id="banner" class="banner idle">Status: idle</div>
+
+  <div class="actions">
+    <button id="btnRun">Run pipeline</button>
+    <button id="btnHeal" class="secondary">Heal</button>
+    <button id="btnApprove" class="secondary">Approve</button>
+  </div>
+
+  <div class="panel">
+    <h2>Current formula</h2>
+    <div id="formulaMeta" class="empty">No data yet.</div>
+    <div id="formulaList" class="formula-list"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Reformulation history</h2>
+    <div id="history" class="empty">No history yet.</div>
+  </div>
+</div>
+
+<script>
+const productId = 'default';
+const banner = document.getElementById('banner');
+const formulaMeta = document.getElementById('formulaMeta');
+const formulaList = document.getElementById('formulaList');
+const historyEl = document.getElementById('history');
+
+function setBanner(status) {
+  banner.className = 'banner';
+  if (status === 'OK') {
+    banner.classList.add('ok');
+    banner.textContent = 'Status: OK';
+  } else if (status === 'SCRAPER_BROKEN') {
+    banner.classList.add('broken');
+    banner.textContent = 'Status: SCRAPER_BROKEN';
+  } else {
+    banner.classList.add('idle');
+    banner.textContent = 'Status: ' + status;
+  }
+}
+
+async function loadHistory() {
+  const res = await fetch('/api/products/' + productId + '/history');
+  const data = await res.json();
+
+  if (data.formula) {
+    formulaMeta.classList.remove('empty');
+    formulaMeta.textContent = (data.formula.productName || productId) + ' — updated ' + new Date(data.formula.updatedAt).toLocaleString();
+    formulaList.innerHTML = data.formula.ingredients.map(i => '<span class="chip">' + escapeHtml(i) + '</span>').join('');
+  } else {
+    formulaMeta.textContent = 'No data yet.';
+    formulaList.innerHTML = '';
+  }
+
+  if (data.history && data.history.length > 0) {
+    historyEl.classList.remove('empty');
+    historyEl.innerHTML = data.history.map(h => {
+      const added = h.added.map(i => '<div class="diff-line add">+ ' + escapeHtml(i) + '</div>').join('');
+      const removed = h.removed.map(i => '<div class="diff-line rem">- ' + escapeHtml(i) + '</div>').join('');
+      return '<div class="history-item"><div class="history-time">' + new Date(h.timestamp).toLocaleString() + '</div>' + added + removed + '</div>';
+    }).join('');
+  } else {
+    historyEl.textContent = 'No history yet.';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function withDisabled(btn, fn) {
+  btn.disabled = true;
+  try {
+    await fn();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnRun').addEventListener('click', () => withDisabled(document.getElementById('btnRun'), async () => {
+  setBanner('running...');
+  const res = await fetch('/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_id: productId }),
+  });
+  const data = await res.json();
+  setBanner(data.status);
+  await loadHistory();
+}));
+
+document.getElementById('btnHeal').addEventListener('click', () => withDisabled(document.getElementById('btnHeal'), async () => {
+  const res = await fetch('/heal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ diagnosis: 'manual trigger from dashboard' }),
+  });
+  const data = await res.json();
+  alert('Heal result:\n' + JSON.stringify(data, null, 2));
+}));
+
+document.getElementById('btnApprove').addEventListener('click', () => withDisabled(document.getElementById('btnApprove'), async () => {
+  const res = await fetch('/approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_id: productId }),
+  });
+  const data = await res.json();
+  setBanner(data.run ? data.run.status : 'unknown');
+  await loadHistory();
+}));
+
+loadHistory();
+</script>
+</body>
+</html>
