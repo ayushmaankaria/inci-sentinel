@@ -53,7 +53,16 @@ function describeFailure(scrapeOutput) {
     detail = '`ingredients` contains empty or non-string entries. Every element must be a non-empty ingredient name string.';
   }
 
-  return `${contract} ${detail} Fields currently returned: ${keys.join(', ') || '(none)'}. Keep all existing fields.`;
+  // Source sites often collapse long lists behind a "more" toggle. A healed
+  // template that reads only the visible portion validates fine but silently
+  // truncates — which the diff engine then reports as ingredients being
+  // *removed*, fabricating a reformulation that never happened. Observed:
+  // a heal produced 10 of 12 ingredients and Port recorded a false
+  // "removed: ethoxydiglycol, chlorphenesin".
+  const completeness =
+    'The list may be partly collapsed behind a [more] / "show more" toggle — read the full underlying list, not just the visible portion, and return every ingredient in source order.';
+
+  return `${contract} ${detail} ${completeness} Fields currently returned: ${keys.join(', ') || '(none)'}. Keep all existing fields.`;
 }
 
 module.exports = { validate, describeFailure };

@@ -106,11 +106,37 @@ against an ingredient page, so the AI was asked to extract a product ingredient
 list from a page that has none, and `code_fixer` ground for twelve minutes
 before erroring.
 
-**A timeout shorter than the thing it was timing.** `heal.js` used a 120-second
-`execFile` timeout against a CLI whose own default heal timeout is 600 seconds.
-The client process was killed while the job kept running server-side, producing
-a confusing failure and then a `409 another refactor job is still in progress`
-on the retry. The local timeout now exceeds Bright Data's.
+**A timeout shorter than the thing it was timing — twice.** `heal.js` first used
+a 120-second `execFile` timeout against a CLI whose own default heal timeout is
+600 seconds, so the client was killed while the job kept running server-side.
+Raising it to 650 seconds looked like plenty and was still wrong: the CLI polls
+up to 600 attempts at roughly one per second, which is wall-clock longer than
+its own default, and Bright Data separately documents refactors taking up to
+fifteen minutes. A live repair died at `code_fixer — polling (attempt 583/600)`.
+Both times the job was progressing fine and we were the ones who gave up — and
+both times it was initially misread as the AI being unable to repair anything.
+There are two independent clocks; the CLI now gets an explicit `--timeout 900`
+and `execFile` sits above it. Killing the client also never cancels the
+server-side job, which then blocks the next attempt with a `409`.
+
+**An approval that approved nothing.** `scraper approve` returns
+`{"status":"done","completed_steps":[...,"user_approval"]}` and reads as
+complete success, but without `--auto-save` it only clears the approval gate —
+it never writes the healed template to the live scraper. A heal whose preview
+contained a correct `ingredients` array was approved, reported `done`, and the
+collector's schema was unchanged. Adding the flag introduces a
+`save_new_template` step, and only then does anything actually apply. Every
+approval made before this discovery was a silent no-op.
+
+**A diagnosis that described the symptom.** The `diagnosis` written onto an
+incident is handed to Bright Data's AI as its repair prompt. Ours said
+"scrape output missing/empty/wrong-shape ingredients array" — true, but not
+actionable. Given it, the AI ran for over twenty minutes and renamed the
+collector. Given a prompt naming the target field, the source field and the
+transform, the identical repair landed in about forty seconds. The lesson
+generalises: a self-healing system is only as good as the diagnosis it emits, so
+`validate.js` now derives that instruction from the observed output rather than
+hardcoding a sentence about it.
 
 **A token that was never delivered.** Every Bright Data MCP call returned
 `HTTP 401: Auth method is not supported`, which reads like the credential is the
@@ -123,75 +149,29 @@ returned 200 and a zone list.
 
 ## Honest status
 
-Everything in the loop above is built and verified end to end **except one
-step**: Bright Data applying an approved repair.
+The loop closes. A real break — the scraper returning correct data in the wrong
+shape — was detected, raised as a Port incident, repaired by Bright Data's AI,
+approved by a human, and the pipeline went green again, with every stage
+verified through the Port and SigNoz MCP servers rather than by reading
+dashboards.
 
-The AI repair itself does work. Heals reach `status: awaiting_approval` with a
-valid preview extracting the correct ingredient list:
+Getting there required fixing two silent defects — a `scraper approve` that
+approved nothing without `--auto-save`, and a diagnosis string too vague for the
+AI to act on. Both are described in Field Notes above.
 
-```json
-{"status":"awaiting_approval",
- "completed_steps":["planner","control_preview_runner","step_advance"],
- "preview_result":[{"product_name":"Niacinamide 10%+ Zinc 1% Serum",
-                    "ingredients":["Aqua (Water)","Niacinamide","10 more items"]}]}
-```
+### A caveat worth stating plainly
 
-The human gate is exercised in **both** directions, but only the reject branch
-is driven all the way through to Bright Data. Rejection is fully demonstrated
-end to end: Port records `status: rejected` with a `rejection_reason`, and
-`scraper approve --reject` discards the proposed template server-side —
-confirmed by the collector immediately re-running and returning all twelve
-ingredients unchanged.
+The first successful heal fixed the *shape* but not the *completeness*: it
+returned 10 of the product's 12 ingredients, missing the two hidden behind the
+page's `[more]` toggle. The pipeline then did exactly what it is built to do and
+reported the difference as a reformulation — `ingredients_removed:
+"ethoxydiglycol, chlorphenesin"` — for ingredients that were never removed.
 
-Approval is deliberately not exercised against the live collector. `scraper
-approve` overwrites a collector's template with the AI's regenerated one, and
-because the account has exhausted its scraper-creation quota there is exactly
-one collector and no way to rebuild it if a regenerated template regressed. The
-break is also staged rather than real — the collector is pointed at a page with
-no ingredient list, so it is not actually damaged, and approving would rewrite a
-working scraper to fix a problem it does not have. Risking the only remaining
-scraper on a repair that is not needed is the wrong trade, so the proposals are
-refused, with that reasoning recorded in Port rather than left implicit.
-
-Building a disposable collector to break for real is currently blocked upstream:
-
-```
-Failed to start AI generation for collector c_mt4rp800de0nhl01t:
-Error: {"error_limit":{"is_valid":false,"threshold":3}}
-  Status: 429
-  Hint: Rate limit exceeded. Wait a moment and try again.
-```
-
-This is a Bright Data AI-Flow limit on scraper *authoring*, unrelated to
-credits — the credit table prices Web Unlocker, SERP, Browser API and scraper
-*records*, not AI generation, and the account has ~4,993 credits unspent.
-
-Four explanations were tested and eliminated. It is not a cooldown: attempts
-forty minutes apart failed identically, and one attempt's own backoff (17s, 32s,
-60s, 233s) burned four retries with the same error. It is not a cap on *stored*
-scrapers: with the account down to a single collector, creating one more —
-two of three — still failed. It is not concurrency from parked jobs either: the
-one heal sitting at `awaiting_approval` was released with
-`scraper approve --reject` (confirmed, a second reject returns
-`400 Invalid ide automation`, meaning nothing is pending), and creation still
-failed. And it is not credits.
-
-What fits every observation is a **lifetime cap of three AI scraper _creations_
-per account, which deleting collectors does not refund**. Exactly three ever
-succeeded; every attempt afterwards failed. Notably, *heals* continued to work
-after that point — reaching `awaiting_approval` with valid previews — so the cap
-applies to creation specifically, not to AI-Flow generally.
-
-Two operational notes for anyone reproducing this. A heal parked at
-`awaiting_approval` blocks later heals on that same collector with
-`409 Another refactor job is still in progress`, which is easy to mistake for
-the quota but is a different problem with a different fix
-(`scraper approve <id> --reject`). And every failed create still leaves a
-half-built collector occupying a slot, with no programmatic deletion — they must
-be removed in the web UI.
-
-Everything downstream of the repair — proposal creation, incident linkage, the
-human approval gate, `/approve` — is implemented and wired.
+That false event is the clearest argument for the human approval gate in this
+whole project. Nothing malfunctioned; a scraper artifact became a claim about a
+real product, and only a person looking at it would catch that. A system that
+auto-approved its own repairs would have published it silently. The generated
+diagnosis now warns the healer about collapsed content for this reason.
 
 ## Running it again
 
