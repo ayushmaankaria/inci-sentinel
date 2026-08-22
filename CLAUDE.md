@@ -120,6 +120,7 @@ hardcode collector IDs, URLs, or CLI flags anywhere in source — read from
 | `OTEL_SERVICE_NAME` | Service name reported to SigNoz (default `inci-sentinel`) |
 | `PORT_CLIENT_ID` / `PORT_CLIENT_SECRET` | Port API client-credentials auth |
 | `BRIGHTDATA_API_TOKEN` | Bright Data API token, consumed by the Bright Data **MCP** server (see below). The `bdata` CLI authenticates separately via its own login, so this is MCP-only. |
+| `NGROK_DOMAIN` | Reserved static ngrok domain, read by `npm run tunnel` (sourced from `.env`). |
 
 ## Port blueprints (confirmed 2026-08-21)
 
@@ -318,8 +319,12 @@ domain**, not an ephemeral one. Free ngrok accounts include one static domain;
 claim it at dashboard.ngrok.com -> Domains. Always start the tunnel pinned to it:
 
 ```bash
-npm run tunnel     # ngrok http --domain=YOUR-DOMAIN.ngrok-free.dev 3000
+npm run tunnel     # sources .env, then: ngrok http --domain=$NGROK_DOMAIN 3000
 ```
+
+The domain is read from `NGROK_DOMAIN` in `.env` (see `package.json`'s
+`tunnel` script), not hardcoded — set it once and `npm run tunnel` always
+pins to it.
 
 Starting a bare `ngrok http 3000` may hand out a *different* random host, which
 silently breaks all three webhook targets below. Always use the npm script.
@@ -520,6 +525,13 @@ observed output and generates that instruction — e.g. for the demo collector:
 
 **Rule:** a self-healing system is only as good as the diagnosis it emits. If a
 heal "succeeds" but changes nothing, suspect the prompt before the AI.
+
+**The heal prompt has a hard 1000-char API limit, confirmed empirically
+(2026-08-22).** A 1113-char diagnosis was flatly rejected before the job even
+started: `Heal prompt is 1113 chars; the API limit is 1000. Shorten it.` This
+is separate from the "make it actionable" rule above — an actionable prompt
+that is also too long still fails outright, with no retry. Keep
+`describeFailure()` output comfortably under 1000 chars.
 
 ## Smoke-test commands
 

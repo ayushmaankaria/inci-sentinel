@@ -149,15 +149,29 @@ returned 200 and a zone list.
 
 ## Honest status
 
-The loop closes. A real break — the scraper returning correct data in the wrong
-shape — was detected, raised as a Port incident, repaired by Bright Data's AI,
-approved by a human, and the pipeline went green again, with every stage
+The loop closes end to end. A real break — the scraper returning correct data in
+the wrong shape — was detected, raised as a Port incident with an
+auto-generated diagnosis, repaired by Bright Data's AI, approved by a human,
+and the pipeline went green again: `run-default-1787437290578` recorded
+`status: OK` immediately following two `SCRAPER_BROKEN` runs. Every stage was
 verified through the Port and SigNoz MCP servers rather than by reading
 dashboards.
 
 Getting there required fixing two silent defects — a `scraper approve` that
 approved nothing without `--auto-save`, and a diagnosis string too vague for the
 AI to act on. Both are described in Field Notes above.
+
+### `POST /approve` is not yet wired up
+
+`heal.js` exports a working `approve(collectorId, url)`, and Port's
+`approve_fix` workflow, the dashboard's Approve button, and this README's own
+Endpoints table all assume `src/index.js` calls it behind `POST /approve`. It
+doesn't — that route was never added; `index.js` currently only implements
+`/run`, `/heal`, and `/alert`. The human-approval step in the run cited above
+was done by invoking the Bright Data CLI (`bdata scraper approve --auto-save`)
+directly, not by Port's live webhook hitting this service. Until the route is
+added, `POST <tunnel>/approve` 404s and the dashboard's Approve button does
+nothing. This is a known, tracked gap, not a design choice.
 
 ### A caveat worth stating plainly
 
@@ -208,8 +222,9 @@ npx -p @brightdata/cli bdata scraper create \
   --name inci-sentinel-primary --pretty -o collector.json
 ```
 
-Bright Data caps AI scraper generation per account, so create sparingly — see
-the quota note above and the `DEMO_COLLECTOR_ID` section of `CLAUDE.md`.
+Bright Data caps AI scraper *generation* at ~3 per account — create sparingly.
+Heals are not capped. See the `DEMO_COLLECTOR_ID` section of `CLAUDE.md` for
+the account-quota gotchas hit while building this.
 
 For the Port and SigNoz webhooks to reach a local machine you need a public
 URL — those services call *in*, so `localhost` is not reachable to them. Start
@@ -288,7 +303,7 @@ CLAUDE.md       operator manual: scraper config, env contract, hard-won gotchas
 |---|---|---|---|
 | POST | `/run` | `{product_id}` | scrape → validate → diff → persist |
 | POST | `/heal` | `{diagnosis, incident_id?}` | creates a pending proposal, returns 202, heals in background |
-| POST | `/approve` | `{approved_by?, heal_proposal_id?, product_id?}` | applies the fix, re-runs the pipeline |
+| POST | `/approve` | `{approved_by?, heal_proposal_id?, product_id?}` | **not yet implemented** — see Honest status |
 | POST | `/alert` | SigNoz alert payload | observability receiver; does not heal |
 | GET | `/api/products/:id/history` | — | reformulation history |
 | GET | `/` | — | operator dashboard |
