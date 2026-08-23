@@ -173,6 +173,46 @@ that came back green. Port recorded `run-default-1787437290578` with
 `status: OK` immediately after two `SCRAPER_BROKEN` runs, confirmed through the
 Port MCP server.
 
+## A real reformulation chain
+
+The single-product demo above is the mechanism. This is the payoff, on data
+nobody staged.
+
+incidecoder uses one template for every product page, so the collector built
+against one Ordinary serum reads any other brand without modification. All 17
+Fancl products scraped cleanly, 473 ingredient rows total, with no code changes
+and no second collector.
+
+Three of those 17 are the same product. incidecoder keeps
+`fancl-mild-cleansing-oil`, `fancl-mild-cleansing-oil-2` (labelled "2017
+formulation") and `fancl-mild-cleansing-oil-3` as separate pages, which makes
+them three generations of one formula. Running the project's own
+`diffIngredients` across them:
+
+```
+14 → 18 ingredients
+  + glycerin, dicaprylyl ether, diglycerin,
+    peg/ppg/polybutylene glycol-8/5/3 glycerin, glycine soja (soybean) oil
+  − dextrin palmitate
+
+18 → 26 ingredients
+  + tridecane, humulus lupulus (hops) extract, camellia sinensis leaf extract,
+    rubus ellipticus root extract, helianthus annuus (sunflower) seed oil,
+    butylene glycol, pentylene glycol, ppg-12, arginine, water, lactic acid
+  − caprylyl caprylate/caprate, dimethicone, glycine soja (soybean) oil
+```
+
+Soybean oil enters in the second generation and leaves in the third. That is
+the case the README opens with, sitting in real data: someone avoiding soy
+would need to know the middle formulation existed, and a product page only ever
+shows the current one. Reading today's list tells you nothing about that.
+
+Watching all three at once needs one small change, which is not in this build.
+`pipeline.js` reads `TARGET_URL` from the environment, so `product_id` labels
+storage rather than selecting a URL, and the service watches one product per
+process. Multiple products means restarting with a different `TARGET_URL`, or
+letting `product_id` resolve to a URL.
+
 ## Field notes
 
 Bugs this build actually hit. Each one stayed invisible until something
@@ -240,6 +280,20 @@ system is only as good as the diagnosis it emits, so `validate.js` derives that
 instruction from the observed output instead of hardcoding a sentence. Prompts
 are also capped at 1000 characters, and an over-long one is rejected outright
 before the job starts.
+
+**A bug you cannot see.** Scraping all 17 Fancl products surfaced invisible
+`U+200B` zero-width spaces in 35 of 473 ingredient strings, roughly 7%.
+incidecoder injects them after slashes so long INCI names wrap, so
+`Caprylic/Capric Triglyceride` is really `Caprylic/` + `U+200B` + `Capric
+Triglyceride`. They pass every check the validator had: non-empty strings that
+survive lowercase and trim, then reach the diff engine and the store looking
+exactly like clean data. Nothing was visibly wrong, which is the point. If the
+source ever moved or dropped one of those hints, every affected ingredient
+would diff as removed *and* re-added in the same run, inventing a
+reformulation across 7% of the list. That is the `[more]` truncation bug again
+in a different costume: a presentation artifact from the source site becoming a
+claim about a product. `normalize()` now strips zero-width and soft-hyphen
+characters before anything downstream sees them.
 
 **A token that was never delivered.** Every Bright Data MCP call returned
 `HTTP 401: Auth method is not supported`, which reads like the credential is

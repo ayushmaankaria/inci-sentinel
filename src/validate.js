@@ -1,5 +1,20 @@
+// incidecoder injects invisible word-wrap hints into long INCI names, mostly a
+// U+200B zero-width space after each slash, so `Caprylic/Capric Triglyceride`
+// arrives as `Caprylic/<U+200B>Capric Triglyceride`. Scraping all 17 Fancl
+// products found this in 35 of 473 ingredient strings (7.4%). They survive
+// lowercase+trim, so they reach the diff engine and the store verbatim.
+//
+// Left in, they are a latent false-reformulation bug of exactly the same family
+// as the `[more]` truncation: if the source ever moves or drops a hint, every
+// affected ingredient diffs as removed AND re-added in the same run, inventing a
+// reformulation that never happened. Strip them here, where normalization
+// already happens, so both sides of every future diff agree.
+// U+200B..U+200D zero-width space/non-joiner/joiner, U+2060 word joiner,
+// U+FEFF BOM/zero-width no-break space, U+00AD soft hyphen.
+const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+
 function normalize(name) {
-  return String(name).toLowerCase().trim();
+  return String(name).replace(INVISIBLE, '').toLowerCase().trim();
 }
 
 function validate(scrapeOutput) {
